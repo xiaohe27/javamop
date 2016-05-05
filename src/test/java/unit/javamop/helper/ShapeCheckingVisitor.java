@@ -1,4 +1,4 @@
-package unit.javamop.helper;
+package javamop.helper;
 
 import javamop.parser.ast.*;
 import javamop.parser.ast.aspectj.*;
@@ -14,12 +14,19 @@ import java.util.List;
 /**
  * Created by He Xiao on 3/20/2016.
  * The shape analysis checks whether two ast have the 'same' structure
- * without comparing concrete values at each node.
+ * without comparing every concrete values at each node.
  */
 public class ShapeCheckingVisitor implements GenericVisitor<Boolean, Node> {
     @Override
     public Boolean visit(Node n, Node arg) {
-        return true;
+        if (n == arg)
+            return true;
+
+        if (n == null || arg == null)
+            return false;
+
+        return n.getBeginLine() == arg.getBeginLine()
+                && n.getBeginColumn() == arg.getBeginColumn();
     }
 
     /**
@@ -34,7 +41,6 @@ public class ShapeCheckingVisitor implements GenericVisitor<Boolean, Node> {
         if (!(arg instanceof MOPSpecFile))
             return false;
 
-        //TODO
         if (f == arg)
             return true;
         if (f == null || arg == null)
@@ -43,21 +49,22 @@ public class ShapeCheckingVisitor implements GenericVisitor<Boolean, Node> {
         //neither f nor arg is null
         MOPSpecFile other = (MOPSpecFile) arg;
 
-        List<ImportDeclaration> importDeclarationList = f.getImports();
         PackageDeclaration packageDeclaration = f.getPakage();
+        List<ImportDeclaration> importDeclarationList = f.getImports();
         List<JavaMOPSpec> specs = f.getSpecs();
 
-        List<ImportDeclaration> importDeclarationList2 = other.getImports();
         PackageDeclaration packageDeclaration2 = other.getPakage();
+        List<ImportDeclaration> importDeclarationList2 = other.getImports();
         List<JavaMOPSpec> specs2 = other.getSpecs();
+
+        if (!visit(packageDeclaration, packageDeclaration2))
+            return false;
 
         if (importDeclarationList.size() != importDeclarationList2.size()
                 || specs.size() != specs2.size())
             return false;
 
-        if (!visit(packageDeclaration, packageDeclaration2))
-            return false;
-
+        //compare each import stmts
         for (int i = 0; i < importDeclarationList.size(); i++) {
             ImportDeclaration importDeclaration = importDeclarationList.get(i);
             ImportDeclaration importDeclaration2 = importDeclarationList2.get(i);
@@ -66,6 +73,7 @@ public class ShapeCheckingVisitor implements GenericVisitor<Boolean, Node> {
                 return false;
         }
 
+        //compare each javamop spec contained in the mop spec file.
         for (int i = 0; i < specs.size(); i++) {
             JavaMOPSpec spec = specs.get(i);
             JavaMOPSpec spec2 = specs2.get(i);
@@ -76,26 +84,256 @@ public class ShapeCheckingVisitor implements GenericVisitor<Boolean, Node> {
         return true;
     }
 
+    public Boolean visit(MOPParameters parameters, MOPParameters parameters2) {
+        //compare parameters
+        if (parameters.size() != parameters2.size())
+            return false;
+
+        for (int i = 0; i < parameters.size(); i++) {
+            if (!visit(parameters.get(i), parameters2.get(i)))
+                return false;
+        }
+        return true;
+    }
+
+    public Boolean visit(String a, String b) {
+        if (a == b)
+            return true;
+
+        if (a == null || b == null)
+            return false;
+
+        return a.equals(b);
+    }
+
     @Override
     public Boolean visit(JavaMOPSpec s, Node arg) {
-        //TODO
+        if (!(arg instanceof JavaMOPSpec))
+            return false;
+
+        if (s == arg) {
+            return true;
+        }
+
+        if (s == null || arg == null)
+            return false;
+
+        JavaMOPSpec other = (JavaMOPSpec) arg;
+        //compare each primitive field
+        if (!s.getName().equals(other.getName()) ||
+                s.getModifiers() != other.getModifiers() ||
+                !visit(s.getInMethod(), other.getInMethod()) ||
+                !visit(s.getRawLogic(), other.getRawLogic()))
+            return false;
+
+        if (!visit(s.getPackage(), other.getPackage()))
+            return false;
+
+        //all the fields are assumed to be non-null
+        //compare parameters;
+        if (!visit(s.getParameters(), other.getParameters()))
+            return false;
+
+
+        //body decl
+        if (s.getDeclarations().size() != other.getDeclarations().size())
+            return false;
+        for (int i = 0; i < s.getDeclarations().size(); i++) {
+            BodyDeclaration bodyDeclaration = s.getDeclarations().get(i);
+            BodyDeclaration bodyDeclaration2 = other.getDeclarations().get(i);
+
+            if (!visit(bodyDeclaration, bodyDeclaration2))
+                return false;
+        }
+
+        //event defs
+        if (s.getEvents().size() != other.getEvents().size())
+            return false;
+
+        for (int i = 0; i < s.getEvents().size(); i++) {
+            EventDefinition eventDefinition = s.getEvents().get(i);
+            EventDefinition eventDefinition2 = other.getEvents().get(i);
+            if (!visit(eventDefinition, eventDefinition2))
+                return false;
+        }
+
+        //prop and handlers
+        if (s.getPropertiesAndHandlers().size() != other.getPropertiesAndHandlers().size())
+            return false;
+
+        for (int i = 0; i < s.getPropertiesAndHandlers().size(); i++) {
+            if (!visit(s.getPropertiesAndHandlers().get(i),
+                    other.getPropertiesAndHandlers().get(i)))
+                return false;
+        }
+
+        if (!visit(s.getCommonParamInEvents(), other.getCommonParamInEvents()))
+            return false;
+
+        if (!visit(s.getVarsToSave(), other.getVarsToSave()))
+            return false;
 
         return true;
     }
 
     @Override
     public Boolean visit(MOPParameter p, Node arg) {
-        return null;
+        if (!(arg instanceof MOPParameter))
+            return false;
+
+        MOPParameter other = (MOPParameter) arg;
+
+        String name = p.getName();
+        String name2 = other.getName();
+
+        String op = p.getType().getOp();
+        String op2 = other.getType().getOp();
+
+        return name.equals(name2) && op.equals(op2);
     }
 
     @Override
     public Boolean visit(EventDefinition e, Node arg) {
-        return null;
+        EventDefinition other = (EventDefinition) arg;
+        boolean primitiveEq =
+                visit(e.getCondition(), other.getCondition())
+                        && visit(e.getCountCond(), other.getCountCond())
+                        && visit(e.getEndObjectVar(), other.getEndObjectVar())
+                        && visit(e.getId(), other.getId())
+                        && e.getIdNum() == other.getIdNum()
+                        && visit(e.getPointCutString(), other.getPointCutString())
+                        && visit(e.getPos(), other.getPos())
+                        && visit(e.getPurePointCutString(), other.getPurePointCutString())
+                        && visit(e.getThreadVar(), other.getThreadVar())
+                        && visit(e.getUniqueId(), other.getUniqueId())
+                        && e.getBeginColumn() == other.getBeginColumn()
+                        && e.getBeginLine() == other.getBeginLine()
+                        && e.getEndColumn() == other.getEndColumn()
+                        && e.getEndLine() == other.getEndLine();
+
+        if (!primitiveEq)
+            return false;
+
+        boolean boolVarsEq =
+                e.has__LOC() == other.has__LOC()
+                        && e.has__SKIP() == other.has__SKIP()
+                        && e.has__STATICSIG() == other.has__STATICSIG()
+                        && e.hasReturning() == other.hasReturning()
+                        && e.hasThrowing() == other.hasThrowing()
+                        && e.isBlockingEvent() == other.isBlockingEvent()
+                        && e.isCreationEvent() == other.isCreationEvent()
+                        && e.isEndObject() == other.isEndObject()
+                        && e.isEndProgram() == other.isEndProgram()
+                        && e.isEndThread() == other.isEndThread()
+                        && e.isStartEvent() == other.isStartEvent()
+                        && e.isStartThread() == other.isStartThread()
+                        && e.isStaticEvent() == other.isStaticEvent();
+
+        if (!boolVarsEq)
+            return false;
+
+        //compare some other sub-structures
+        if (!visit(e.getRetType(), other.getRetType()))
+            return false;
+
+        if (!e.getPointCut().getType().equals(other.getPointCut().getType()))
+            return false;
+
+        if (!visit(e.getParameters(), other.getParameters()))
+            return false;
+
+        if (!visit(e.getRetVal(), other.getRetVal()))
+            return false;
+
+        if (!visit(e.getThrowVal(), other.getThrowVal()))
+            return false;
+
+        if (!visit(e.getMOPParameters(), other.getMOPParameters()))
+            return false;
+
+        if (!visit(e.getMOPParametersOnSpec(), other.getMOPParametersOnSpec()))
+            return false;
+
+        //blocks
+        if (!visit(e.getAction(), other.getAction()))
+            return false;
+
+        //thread blocked vars
+        if (e.getThreadBlockedVar() != other.getThreadBlockedVar()) {
+            if (e.getThreadBlockedVar() == null || other.getThreadBlockedVar() == null)
+                return false;
+
+            else {
+                if (e.getThreadBlockedVar().size() != other.getThreadBlockedVar().size())
+                    return false;
+
+                for (int i = 0; i < e.getThreadBlockedVar().size(); i++) {
+                    if (!e.getThreadBlockedVar().get(i).equals(other.getThreadBlockedVar().get(i)))
+                        return false;
+                }
+            }
+        }
+
+        if (e.getEndObjectType() != other.getEndObjectType()) {
+            if (e.getEndObjectType() == null || other.getEndObjectType() == null)
+                return false;
+
+            else {
+                String op1 = e.getEndObjectType().getOp();
+                String op2 = other.getEndObjectType().getOp();
+
+                if (op1 != op2) {
+                    if (op1 == null || op2 == null)
+                        return false;
+                    else
+                        return op1.equals(op2);
+                }
+            }
+        }
+
+        return true;
     }
 
     @Override
     public Boolean visit(PropertyAndHandlers p, Node arg) {
-        return null;
+        if (p == arg)
+            return true;
+
+        if (p == null || arg == null)
+            return false;
+
+        if (!(arg instanceof PropertyAndHandlers))
+            return false;
+
+        PropertyAndHandlers other = (PropertyAndHandlers) arg;
+        if (!visit(p.getProperty(), other.getProperty()))
+            return false;
+
+        if (p.getPropertyId() != other.getPropertyId())
+            return false;
+
+        if (p.getVersionedStack() != other.getVersionedStack())
+            return false;
+
+        if (p.getHandlers().size() != other.getHandlers().size())
+            return false;
+
+        for (String key :
+                p.getHandlers().keySet()) {
+            BlockStmt b1 = p.getHandlers().get(key);
+            BlockStmt b2 = other.getHandlers().get(key);
+            if (!visit(b1, b2))
+                return false;
+        }
+
+        return true;
+    }
+
+    public Boolean visit(Property p1, Property p2) {
+        if (p1 == p2) return true;
+        if (p1 == null || p2 == null) return false;
+
+        return (p1.getType().equals(p2.getType()));
     }
 
     @Override
@@ -240,16 +478,64 @@ public class ShapeCheckingVisitor implements GenericVisitor<Boolean, Node> {
 
     @Override
     public Boolean visit(PackageDeclaration n, Node arg) {
-        //TODO
+        if (!(arg instanceof PackageDeclaration))
+            return false;
+
+        if (n == arg) {
+            return true;
+        }
+
+        if (n == null || arg == null)
+            return false;
+
+        PackageDeclaration other = (PackageDeclaration) arg;
+        NameExpr ne1 = n.getName();
+        NameExpr ne2 = other.getName();
+
+        if (!visit(ne1, ne2))
+            return false;
+
+        List<AnnotationExpr> annotationExprs1 = n.getAnnotations();
+        List<AnnotationExpr> annotationExprs2 = other.getAnnotations();
+
+        if (annotationExprs1 != annotationExprs2) {
+            if (annotationExprs1 == null || annotationExprs2 == null)
+                return false;
+
+            else {
+                if (annotationExprs1.size() != annotationExprs2.size())
+                    return false;
+
+                for (int i = 0; i < annotationExprs1.size(); i++) {
+                    if (!annotationExprs1.get(i).equals(annotationExprs2.get(i))) {
+                        return false;
+                    }
+                }
+            }
+        }
+
 
         return true;
     }
 
     @Override
     public Boolean visit(ImportDeclaration n, Node arg) {
-        //TODO
+        if (!(arg instanceof ImportDeclaration))
+            return false;
 
-        return true;
+        if (n == arg) {
+            return true;
+        }
+
+        if (n == null || arg == null)
+            return false;
+
+        ImportDeclaration other = (ImportDeclaration) arg;
+        if (!visit(n.getName(), other.getName()))
+            return false;
+
+        return n.isAsterisk() == other.isAsterisk()
+                && n.isStatic() == other.isStatic();
     }
 
     @Override
@@ -459,7 +745,26 @@ public class ShapeCheckingVisitor implements GenericVisitor<Boolean, Node> {
 
     @Override
     public Boolean visit(NameExpr n, Node arg) {
-        return null;
+        if (!(arg instanceof NameExpr))
+            return false;
+
+        if (n == arg) {
+            return true;
+        }
+
+        if (n == null || arg == null)
+            return false;
+
+        String name1 = n.getName();
+        String name2 = ((NameExpr) arg).getName();
+
+        if (name1 == name2)
+            return true;
+
+        if (name1 == null || name2 == null)
+            return false;
+
+        return name1.equals(name2);
     }
 
     @Override
@@ -534,7 +839,37 @@ public class ShapeCheckingVisitor implements GenericVisitor<Boolean, Node> {
 
     @Override
     public Boolean visit(BlockStmt n, Node arg) {
-        return null;
+        if (!(arg instanceof BlockStmt))
+            return false;
+
+        if (n == arg) {
+            return true;
+        }
+
+        if (n == null || arg == null)
+            return false;
+
+        BlockStmt other = (BlockStmt) arg;
+        if (n.getStmts() != other.getStmts()) {
+            if (n.getStmts() == null || other.getStmts() == null)
+                return false;
+
+            else {
+                if (n.getStmts().size() != other.getStmts().size())
+                    return false;
+
+                for (int i = 0; i < n.getStmts().size(); i++) {
+                    Statement s1 = n.getStmts().get(i);
+                    Statement s2 = other.getStmts().get(i);
+
+                    if (!s1.toString().equals(s2.toString()))
+                        return false;
+                }
+
+            }
+        }
+
+        return true;
     }
 
     @Override
